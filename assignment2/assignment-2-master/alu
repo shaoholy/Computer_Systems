@@ -1,0 +1,629 @@
+#!/bin/sh
+##
+# This script implements the arithmetic logic unit (ALU)
+# for word-oriented arithmetic and logic operations
+
+# directory of this script
+dir="$(dirname $0)"
+
+# include word definitions
+source "$dir/worddefs"
+
+##
+# calls 'word' command on same path as this script
+word() { echo $($dir/word $*); }
+
+##
+# Output usage message to standard error
+usage() {
+    echo "usage: $(basename $0) [op word ...]" 1>&2
+    echo "word is a ${wordsize}-bit word, or a unsigned hex (0x1A2F) or decimal number" 1>&2
+}
+
+# Test Pass!
+## 
+# Difference of two word operands.
+# @param the first opearand
+# @param the second operand
+# @return the difference
+sub() {
+    local carry=1
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(( $(word $1 $b) + $(notBit $(word $2 $b)) + carry))
+        carry=$((t>>1)) # bit 1 is carry bit
+        result=$(word $result $b $t) # word uses only lower bit of t
+    done
+    echo $result
+}
+
+
+
+# self code parts
+
+# Test Pass!
+## 
+# returns 1 if word is < 0, else 0
+# @param word as opearand
+
+testlt() {
+    # local t=$(word $1 $wordtopbit)
+    local t=$(word $1 $wordtopbit)
+    if [ $t -eq 1 ]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+# Test Pass!
+## 
+# returns 1 if word is >= 0, else 0
+# @param word as opearand
+
+testge() {
+    # local index=$((wordtopbit-($word)))
+    # printf ${1:0:1}
+    local t=$(word $1 $wordtopbit)
+    local res=$((1-$(testlt $1)))
+    echo $res
+    #  echo $((1-t))
+}
+
+# Test Pass!
+## 
+# returns 1 if word is == 0, else 0
+# @param word as opearand
+
+testeq() {
+    local bitzero=0
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(word $1 $b)
+        if [ $t -ne $bitzero ]; then # when one digit NOT EQUAL to 0, return false (0)
+            echo 0
+            return
+        fi
+    done
+    echo 1
+}
+
+# Test Pass!
+## 
+# arithmetic shift of word by count: +: left, -: right
+# @param word as opearand
+# @param int as count of shift
+
+ash() {
+    local result=$zeroword
+    local sign=$(word $1 $wordtopbit)
+    # local c=${$2#-}
+    # local c =abs($2)
+    local c=$(($2))
+    if [ $((c)) -lt 0 ]; then  # absolute value of shift bits
+        c=$((0 - c))
+    fi
+    # printf " C!!: "
+    # printf "$c"
+    # printf " "
+    if [ $((c)) -gt $((wordsize-1)) ]; then
+        c=$((wordsize-1))
+    fi
+
+    # 
+    if [ $2 -lt 0 ]; then # right shift
+        for ((b=$((wordtopbit-1)); b>=$((c)); b--)); do
+            local tbit=$(word $1 $b)
+            result=$(word $result $((b-c)) $tbit)
+        done
+
+        for ((b=$c; b>= 1; b--)); do
+            result=$(word $result $((wordtopbit-b)) $sign)
+        done
+    else # left shift
+        for ((b=$((wordtopbit-1)); b>= $((c)); b--)); do
+            local tbit=$( word $1 $((b-c)) )
+            result=$(word $result $b $tbit)
+        done
+
+        for ((b=$((c-1)); b>=0; b--)); do
+            result=$(word $result $b 0)
+        done
+    fi
+
+    #sign the +/- of result
+    
+    result=$(word $result $wordtopbit $sign)
+    echo $result
+}
+
+# Test Pass!
+## 
+# circular shift of word by count: +: left, -: right
+# @param word as opearand
+# @param int as count of shift
+
+csh() {
+    # local numOfBits=$(${$2#-} % 32);
+    
+    local result=$zeroword
+
+    local numOfBits=$(($2))
+    if [ $((numOfBits)) -lt 0 ]; then  # absolute value of shift bits
+        numOfBits=$((0 - numOfBits))
+    fi
+
+    numOfBits=$((numOfBits % wordsize))
+
+    if [ $2 -lt 0 ]; then # // move higher bits to right
+        for ((b=$((numOfBits)); b<=$((wordtopbit)); b++)); do
+            local tbit=$(word $1 $b)
+            result=$(word $result $((b-numOfBits)) $tbit)
+        done
+
+        for ((b=0; b<$((numOfBits)); b++)); do
+            local tbit=$(word $1 $b)
+            result=$(word $result $((b-numOfBits+wordsize)) $tbit)
+        done
+    else # move lower bit to left
+        for ((b=$wordtopbit; b>=$numOfBits; b--)); do
+            local tbit=$(word $1 $((b-numOfBits)) )
+            result=$(word $result $b $tbit)
+        done
+
+        for ((b=$(($numOfBits-1)); b>=0; b--)); do
+            local tbit=$(word $1 $((b-numOfBits+wordsize)))
+            result=$(word $result $b $tbit)
+        done
+
+    fi
+    echo $result
+}
+
+# Test Pass!
+## 
+# logical shift of word by count: +: left, -: right
+# @param word as opearand
+# @param int as count of shift
+
+lsh() {
+    local result=$zeroword
+    if [ $2 -gt $((wordsize-1)) ] || [ $2 -lt $((1-wordsize)) ]; then
+        echo $result
+    else
+        local shift=$(($2))
+        if [ $2 -lt 0 ]; then
+            shift=$((0-$2))
+        fi
+        if [ $2 -gt 0 ]; then # shift left
+            for ((b=$wordtopbit; b>=0; b--)); do
+                if [ $b -lt $shift ]; then
+                    result=$(word $result $b 0)
+                else
+                    local tbit=$(word $1 $((b-shift)))
+                    result=$(word $result $b $tbit)
+                fi
+            done
+        else # shift right
+            for ((b=$wordtopbit; b>=0; b--)); do
+                if [ $b -gt $((wordtopbit-shift)) ]; then
+                    result=$(word $result $b 0)
+                else
+                    local tbit=$(word $1 $((b+shift)))
+                    result=$(word $result $b $tbit)
+                fi
+            done
+        fi
+        echo $result
+    fi
+}
+
+# Test Pass!
+## 
+#  ands the two words
+# @param word as first opearand
+# @param word as second opearand
+
+and() {
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(( $(( $(word $1 $b) )) & $(( $(word $2 $b) )) ))
+        # printf "$(word $1 $b)"
+        # printf " "
+        # printf " $(word $2 $b)"
+        # printf " "
+        # printf "$t"
+        # printf "    |   "
+
+        result=$(word $result $b $t) # word uses only lower bit of t
+    done
+    echo $result
+}
+
+# Test Pass!
+## 
+#  ors the two words
+# @param word as first opearand
+# @param word as second opearand
+
+or() {
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(( $(( $(word $1 $b) )) | $(( $(word $2 $b) )) ))
+        # t=$(toBit $t)
+        result=$(word $result $b $t) # word uses only lower bit of t
+    done
+    echo $result
+}
+
+# Test Pass!
+## 
+#  xors the two words
+# @param word as first opearand
+# @param word as second opearand
+
+xor() {
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(( $(( $(word $1 $b) )) ^ $(( $(word $2 $b) )) ))
+
+        result=$(word $result $b $t) # word uses only lower bit of t
+    done
+    echo $result
+}
+
+# Test Pass!
+## 
+#  negate the word
+# @param word as the opearand
+
+not() {
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(notBit $(word $1 $b)) 
+        result=$(word $result $b $t) # word uses only lower bit of t
+    done
+    echo $result
+}
+
+# Test Pass!
+## 
+#  add the two words
+# @param word as first opearand
+# @param word as second opearand
+
+add() {
+    # local carry=0
+    # local result=$zeroword
+    # for ((b=0; b <= $wordtopbit; b++)); do
+    #     local t=$(( $(word $1 $b) + $(word $2 $b) + carry)) 
+    #     local t1=$(toBit $t)
+    #     carry=$((t>>1)) # bit 1 is carry bit
+    #     result=$(word $result $b $t1) # word uses only lower bit of t
+    # done
+    # echo $result
+
+    local w=$(minus $2)
+    local result=$(sub $1 $w)
+    echo $result
+}
+
+## 
+#  multiply the two words
+# @param word as first opearand
+# @param word as second opearand
+
+mul() {
+    # step 1: set sign
+    local result=$zeroword
+
+    if [ $(( $(testeq $1) )) -eq 1 ] || [ $(( $(testeq $2) )) -eq 1 ]; then
+        echo $result
+        return
+    fi
+
+    local sign=0;
+    if [ $(( $(($(testlt $1))) + $(($(testlt $2))) )) -eq 1 ]; then
+        sign=1
+    fi
+
+    local w1=$(minus $1)
+    local w2=$(minus $2)
+    local w1=$(minus $w1)
+    local w2=$(minus $w2)
+
+    # local test1= $(testlt $1)
+    # local test2= $(testlt $2)
+
+    if [ $(( $(testlt $1) )) -eq 1 ]; then
+        w1=$(minus $w1)
+    fi
+    if [ $(( $(testlt $2) )) -eq 1 ]; then
+        w2=$(minus $w2)
+    fi
+
+
+    #step 2: add each bit of $2 after shift if 1
+    for ((b=0; b < $wordtopbit; b++)); do
+        local mulbit=$(word $w2 $b)
+        local round=$zeroword
+        if [ $mulbit -eq 1 ]; then
+            round=$(ash $w1 $b)
+
+        fi
+
+        result=$(add $result $round)
+    done   
+    # printf " pre-res !! : "
+    # printf "$result"
+    # printf " | "
+
+
+    if [ "$sign" -eq "1" ]; then
+        result=$(minus $result)
+    fi
+    echo $result
+}
+
+## 
+#  divide the first word by the second word
+# @param word as first opearand
+# @param word as second opearand
+
+div() {
+    local result=$zeroword
+    local remainder=$zeroword
+
+    if [ $(( $(testeq $2) )) -eq 1 ]; then
+        # handle divide by 0 by returning largest
+        # positive or negative number
+        # maxword if pos, minword if neg
+        if [ $(( $(testge $1) )) -eq 1 ]; then
+            result=$(word $result $wordtopbit 1)
+            result=$(sub $result 1)
+        else
+            result=$(word $result $wordtopbit 1)
+        fi
+    elif [ $(( $(testeq $1) )) -eq 1 ]; then
+        result=$zeroword
+        remainder=$zeroword
+    else
+        # set operand to pos & find if result neg
+        local w1=$(minus $(minus $1))
+        local w2=$(minus $(minus $2))
+        local resultNegative=0
+        
+
+        
+        if [ $(( $(testlt $1) )) -eq 1 ]; then  
+            w1=$(minus $w1)
+            resultNegative=$((1- resultNegative))
+        fi
+
+        if [ $(( $(testlt $2) )) -eq 1 ]; then  
+            w2=$(minus $w2)
+            resultNegative=$((1- resultNegative))
+        fi
+
+        # printf " w1 !! : "
+        # printf "$w1"
+        # printf " | "
+        # printf " w2 !! : "
+        # printf "$w2"
+        # printf " | "
+
+        # printf " neg !! : "
+        # printf "$resultNegative"
+        # printf " | "
+
+        # for (int b = wordtopbit; b >= 0; b--) {
+        #     lshWord(result, result, 1); // shift result for next bit
+        #     lshWord(remainder, remainder, 1);   // position remainder
+        #     bit t = getBitOfWord(w1, b);    // bring down next bit
+        #     setBitOfWord(remainder, 0, t);
+
+        #     word test;
+        #     subWord(test, remainder, w2);  // do trial subtract
+        #     if (testGeWord(test)) { // division successful if still positive
+        #         setBitOfWord(result, 0, 1); // shift bit into result
+        #         setWord(remainder, test);   // update remainder
+        #     }
+        # }
+
+        # divide part
+        for ((b=$wordtopbit; b>=0; b--)); do
+            result=$(lsh $result 1) # shift result for next bit
+            remainder=$(lsh $remainder 1) # position remainder
+            local tbit=$(word $w1 $b) # bring down next bit
+            remainder=$(word $remainder 0 $tbit)
+
+            local test=$(sub $remainder $w2)
+            if [ $(( $(testge $test) )) -eq 1 ]; then
+                result=$(word $result 0 1)
+                remainder=$(minus $(minus $test))
+            fi
+        done
+
+        # printf " pre-res !! : "
+        # printf "$result"
+        # printf " | "
+
+        if [ "$resultNegative" -eq 1 ]; then # set correct sign of result
+            result=$(minus $result)
+        fi
+
+        if [ $(( $(testlt $1) )) -eq 1 ]; then # remainder negative if op1 is negative
+            remainder=$(minus $remainder)
+        fi
+
+    fi
+    echo $result
+}
+
+## 
+# the remainder of the first word by the second
+# @param word as first opearand
+# @param word as second opearand
+
+rmdr() {
+    local result=$zeroword
+    local remainder=$zeroword
+
+    if [ $(( $(testeq $2) )) -eq 1 ]; then
+        # handle divide by 0 by returning largest
+        # positive or negative number
+        # maxword if pos, minword if neg
+        if [ $(( $(testge $1) )) -eq 1 ]; then
+            result=$(word $result $wordtopbit 1)
+            result=$(sub $result 1)
+        else
+            result=$(word $result $wordtopbit 1)
+        fi
+    elif [ $(( $(testeq $1) )) -eq 1 ]; then
+        result=$zeroword
+        remainder=$zeroword
+    else
+        # set operand to pos & find if result neg
+        local w1=$(minus $(minus $1))
+        local w2=$(minus $(minus $2))
+        local resultNegative=0
+        
+
+        
+        if [ $(( $(testlt $1) )) -eq 1 ]; then  
+            w1=$(minus $w1)
+            resultNegative=$((1- resultNegative))
+        fi
+
+        if [ $(( $(testlt $2) )) -eq 1 ]; then  
+            w2=$(minus $w2)
+            resultNegative=$((1- resultNegative))
+        fi
+
+        # printf " w1 !! : "
+        # printf "$w1"
+        # printf " | "
+        # printf " w2 !! : "
+        # printf "$w2"
+        # printf " | "
+
+        # printf " neg !! : "
+        # printf "$resultNegative"
+        # printf " | "
+
+        # for (int b = wordtopbit; b >= 0; b--) {
+        #     lshWord(result, result, 1); // shift result for next bit
+        #     lshWord(remainder, remainder, 1);   // position remainder
+        #     bit t = getBitOfWord(w1, b);    // bring down next bit
+        #     setBitOfWord(remainder, 0, t);
+
+        #     word test;
+        #     subWord(test, remainder, w2);  // do trial subtract
+        #     if (testGeWord(test)) { // division successful if still positive
+        #         setBitOfWord(result, 0, 1); // shift bit into result
+        #         setWord(remainder, test);   // update remainder
+        #     }
+        # }
+
+        # divide part
+        for ((b=$wordtopbit; b>=0; b--)); do
+            result=$(lsh $result 1) # shift result for next bit
+            remainder=$(lsh $remainder 1) # position remainder
+            local tbit=$(word $w1 $b) # bring down next bit
+            remainder=$(word $remainder 0 $tbit)
+
+            local test=$(sub $remainder $w2)
+            if [ $(( $(testge $test) )) -eq 1 ]; then
+                result=$(word $result 0 1)
+                remainder=$(minus $(minus $test))
+            fi
+        done
+
+        # printf " pre-res !! : "
+        # printf "$result"
+        # printf " | "
+
+        if [ "$resultNegative" -eq 1 ]; then # set correct sign of result
+            result=$(minus $result)
+        fi
+
+        if [ $(( $(testlt $1) )) -eq 1 ]; then # remainder negative if op1 is negative
+            remainder=$(minus $remainder)
+        fi
+
+    fi
+    echo $remainder
+}
+
+# Test Pass!
+## 
+# negative of the word
+# @param word as opearand
+
+minus() {
+    local carry=1;
+    local result=$zeroword
+    for ((b=0; b <= $wordtopbit; b++)); do
+        local t=$(($(notBit $(word $1 $b)) + carry))
+        local tbit=$(toBit $t)
+        carry=$((t>>1)) # bit 1 is carry bit
+        result=$(word $result $b $tbit) # word uses only lower bit of t
+    done
+    echo $result
+}
+
+# dispatch message to alu function
+case $1 in
+sub) 
+    echo $(sub $2 $3)
+    ;;
+minus) 
+    echo $(minus $2)
+    ;;
+add) 
+    echo $(add $2 $3)
+    ;;
+mul) 
+    echo $(mul $2 $3)
+    ;;
+div) 
+    echo $(div $2 $3)
+    ;;
+rmdr) 
+    echo $(rmdr $2 $3)
+    ;;
+ash) 
+    echo $(ash $2 $3)
+    ;;
+csh) 
+    echo $(csh $2 $3)
+    ;;
+lsh) 
+    echo $(lsh $2 $3)
+    ;;
+testlt) 
+    echo $(testlt $2)
+    ;;
+testge) 
+    echo $(testge $2)
+    ;;
+testeq) 
+    echo $(testeq $2)
+    ;;
+and) 
+    echo $(and $2 $3)
+    ;;
+or) 
+    echo $(or $2 $3)
+    ;;
+xor) 
+    echo $(xor $2 $3)
+    ;;
+not) 
+    echo $(not $2)
+    ;;
+*)
+    usage
+    ;;
+esac
+
+

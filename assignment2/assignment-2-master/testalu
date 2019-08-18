@@ -1,0 +1,66 @@
+#!/bin/sh
+##
+# This script tests the arithmetic logic unit (ALU)
+# word-oriented arithmetic and logic operations
+
+# directory of this script
+dir="$(dirname $0)"
+
+# include word definitions
+source "$dir/worddefs"
+
+# include unit test functions
+source "$dir/unittest"
+
+##
+# calls 'word' command on same path as this script
+word() { echo $($dir/word $*); }
+
+##
+# calls 'alu' command on same path as this script
+alu() { echo $($dir/alu $*); }
+
+##
+# test basic word functions
+test_word() {
+    # test conversion from hex to word
+    local w1=$(word "0xF0A6")
+    assertWordEqual "$w1" "1111000010100110"
+
+    # check that initial bits are set
+    assertEqual $(word $w1 0) 0
+    assertEqual $(word $w1 7) 1
+    assertEqual $(word $w1 8) 0
+    assertEqual $(word $w1 $wordtopbit) 1
+    
+    # reverse those bits    
+    w1=$(word $w1 0 1)
+    w1=$(word $w1 7 0)
+    w1=$(word $w1 8 1)
+    w1=$(word $w1 $wordtopbit 0)
+
+    # check that modified bits are set
+    assertEqual $(word $w1 0) 1
+    assertEqual $(word $w1 7) 0
+    assertEqual $(word $w1 8) 1
+    assertEqual $(word $w1 $wordtopbit) 0
+}
+
+## 
+# test math functions (add, sub, mul, div, negative)
+test_math() {
+    w1="1111111111111111"
+    w2="1111111111111100"
+
+    # test top bit of word
+    assertTrue "$(word $w2 $wordtopbit)"
+
+    # test difference of w1 and w2
+    assertWordEqual "$(alu sub $w1 $w2)" "0000000000000011"
+}
+
+test_word
+test_math
+
+# show unit test summary
+unitTestSummary

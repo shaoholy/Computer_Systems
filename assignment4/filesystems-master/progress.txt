@@ -1,0 +1,5 @@
+We have started with the assignment. We have gone through the code and believe
+we have understood the requirements of what needs to be done for the assignment.
+
+As of now, completed the function fs_init and are now working on the completing
+the path translation function.
